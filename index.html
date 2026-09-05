@@ -321,9 +321,58 @@
   });
 
   // ---- Save entry ----
+  // Draws an FDH ID, lat/long, and timestamp bar onto the bottom of a photo.
+  function stampPhoto(dataUrl, fix, meta){
+    return new Promise(function(resolve){
+      const img = new Image();
+      img.onload = function(){
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        const lines = [];
+        if(meta.fdhId) lines.push('FDH: ' + meta.fdhId + (meta.name ? '  \u2014  ' + meta.name : ''));
+        lines.push('Lat/Long: ' + fix.lat.toFixed(6) + ', ' + fix.lng.toFixed(6) + '  (\u00b1' + Math.round(fix.accuracy) + 'm)');
+        lines.push(meta.tsDisplay);
+
+        const fontSize = Math.max(13, Math.round(canvas.width * 0.026));
+        const lineHeight = Math.round(fontSize * 1.5);
+        const padding = Math.round(fontSize * 0.8);
+        const barHeight = lines.length * lineHeight + padding * 2;
+
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, canvas.height - barHeight, canvas.width, barHeight);
+
+        ctx.font = fontSize + 'px sans-serif';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textBaseline = 'top';
+        lines.forEach(function(line, i){
+          ctx.fillText(line, padding, canvas.height - barHeight + padding + i * lineHeight);
+        });
+
+        resolve(canvas.toDataURL('image/jpeg', 0.75));
+      };
+      img.onerror = function(){ resolve(dataUrl); }; // fall back to unstamped photo if anything goes wrong
+      img.src = dataUrl;
+    });
+  }
+
   saveBtn.addEventListener('click', async function(){
     if(!pendingFix || !fdhId.value.trim()) return;
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+    const nowIso = new Date().toISOString();
+    let finalPhoto = pendingPhoto || null;
+    if(pendingPhoto){
+      try{
+        finalPhoto = await stampPhoto(pendingPhoto, pendingFix, {
+          fdhId: fdhId.value.trim(),
+          name: fdhName.value.trim(),
+          tsDisplay: new Date(nowIso).toLocaleString()
+        });
+      }catch(e){ finalPhoto = pendingPhoto; }
+    }
     const entry = {
       id: id,
       fdhId: fdhId.value.trim(),
@@ -332,8 +381,8 @@
       lat: pendingFix.lat,
       lng: pendingFix.lng,
       accuracy: pendingFix.accuracy,
-      ts: new Date().toISOString(),
-      photo: pendingPhoto || null,
+      ts: nowIso,
+      photo: finalPhoto,
       synced: false
     };
     try{
