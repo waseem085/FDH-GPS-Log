@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fdh-gps-logger-v1';
+const CACHE_NAME = 'fdh-gps-logger-v2';
 const APP_SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function(event){
@@ -17,11 +17,26 @@ self.addEventListener('activate', function(event){
   self.clients.claim();
 });
 
-// Cache-first for the app shell, network passthrough for everything else (e.g. the Sheet sync POST).
+// Network-first for the app shell (HTML/manifest) so a new deploy shows up
+// immediately. Falls back to the cached copy only when there's no connection.
+// Icons rarely change, so those stay cache-first.
 self.addEventListener('fetch', function(event){
   if(event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if(url.origin !== self.location.origin) return; // don't intercept the Apps Script sync call
+
+  const isAppShellDoc = event.request.mode === 'navigate' ||
+    url.pathname.endsWith('.html') || url.pathname.endsWith('manifest.json') || url.pathname === '/' || url.pathname.endsWith('/');
+
+  if(isAppShellDoc){
+    event.respondWith(
+      fetch(event.request).then(function(resp){
+        caches.open(CACHE_NAME).then(function(cache){ cache.put(event.request, resp.clone()); });
+        return resp;
+      }).catch(function(){ return caches.match(event.request); })
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then(function(cached){
